@@ -19,11 +19,10 @@ import torch.optim as optim
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import network
-from mixup_utils import progress_bar
+from helper.mixup_utils import progress_bar
 from helper.data_list import ImageList_idx, ImageList, ImageList_MixUp, ImageList_ocda
 from torch.utils.data import DataLoader
 import ml_collections
-import wandb
 import random 
 
 def init_src_model_load(args):
@@ -41,15 +40,6 @@ def init_src_model_load(args):
     netB = network.feat_bootleneck(type='bn', feature_dim=netF.in_features,bottleneck_dim=256).cuda()
     netC = network.feat_classifier(type='wn', class_num=args.class_num, bottleneck_dim=256).cuda()
 
-    if torch.cuda.device_count() >= 1:
-        gpu_list = []
-        for i in range(len(args.gpu_id.split(','))):
-            gpu_list.append(i)
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
-        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-        netF = nn.DataParallel(netF, device_ids=gpu_list)
-        netB = nn.DataParallel(netB, device_ids=gpu_list)
-        netC = nn.DataParallel(netC, device_ids=gpu_list)
     return netF, netB, netC
 
 def image_train(resize_size=256, crop_size=224, alexnet=False):
@@ -84,27 +74,13 @@ def data_load(args):
     print("Source Domain: ", names[args.s], "No. of Images: ", len(txt_tar))
     dsets['train'] = ImageList_ocda(txt_tar, transform=image_train(), target = args.t, train=True)
     print("Since ODCA only using: ", len(dsets['train']))
-    dset_loaders['train'] = DataLoader(dsets['train'], batch_size=args.batch_size, shuffle=True, num_workers=args.worker, drop_last=False)
+    dset_loaders['train'] = DataLoader(dsets['train'], batch_size=args.batch_size, shuffle=True, drop_last=False)
     
-    if args.dset =='domain_net':
-        txt_tar = []
-        for i in range(6):
-            if i == args.s:
-                continue
-            tmp = open(f'data/{args.dset}/{names[i].lower()}_test.txt').readlines()
-            print("Domain:", names[i], "Number of Images:", len(tmp))
-
-            txt_tar.extend(tmp)
-        txt_test = txt_tar.copy()  
-        print("Total Images:", len(txt_test)) 
-
-        dsets["test"] = ImageList(txt_test, transform=image_train())
-        dset_loaders["test"] = DataLoader(dsets["test"], batch_size=args.test_bs, shuffle=True, num_workers=args.worker, drop_last=False)
     
-    else:
-        dsets['test'] = ImageList_ocda(txt_tar, transform=image_train(), target = args.t, train=False)
-        print("target images: ", len(dsets['test']))
-        dset_loaders['test'] = DataLoader(dsets['test'], batch_size=args.test_bs, shuffle=True, num_workers=args.worker, drop_last=False)
+    dsets['test'] = ImageList_ocda(txt_tar, transform=image_train(), target = args.t, train=False)
+    print("target images: ", len(dsets['test']))
+    dset_loaders['test'] = DataLoader(dsets['test'], batch_size=args.batch_size, shuffle=True, drop_last=False)
+
     return dset_loaders,dsets
 
 def separate_classwise_idx(args, dset, num_classes): #!@ args
@@ -122,10 +98,10 @@ def separate_classwise_idx(args, dset, num_classes): #!@ args
 
 def mixup_data(x, y, alpha=1.0, use_cuda=True):
     '''Returns mixed inputs, pairs of targets, and lambda'''
-    # if alpha > 0:
-    #     lam = np.random.beta(alpha, alpha)
-    # else:
-    lam = 1
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha)
+    else:
+        lam = 1
 
     batch_size = x.size()[0]
     if use_cuda:
@@ -171,7 +147,6 @@ def train(args, epoch,train_loader):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        wandb.log({'train_loss': train_loss/(batch_idx+1), 'train_acc': 100.*correct/total})
     
         progress_bar(batch_idx, len(train_loader),
                     'Loss: %.3f | Acc: %.3f%% (%d/%d)'
@@ -240,23 +215,19 @@ if __name__ == '__main__':
     parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
     parser.add_argument('--net', default="deit_s", type=str, help='model type (default: ResNet18)')
     parser.add_argument('--name', default='0', type=str, help='name of run')
-    parser.add_argument('--suffix', default='ocda', type=str, help='wandb name of run')
+    parser.add_argument('--suffix', default='ocda', type=str, help='name of run')
     parser.add_argument('--seed', default=0, type=int, help='random seed')
     parser.add_argument('--batch_size', default=32, type=int, help='batch size')
-    parser.add_argument('--test_bs', default=256, type=int)
-    parser.add_argument('--worker', type=int, default=8, help="number of workers")
-
     parser.add_argument('--epoch', default=200, type=int, help='total epochs to run')
     parser.add_argument('--interval', default=2, type=int)
     parser.add_argument('--no-augment', dest='augment', action='store_false', help='use standard augmentation (default: True)')
     parser.add_argument('--decay', default=1e-4, type=float, help='weight decay')
     parser.add_argument('--alpha', default=1., type=float, help='mixup interpolation coefficient (default: 1)')
-    parser.add_argument('--wandb', type=int, default=0)
     parser.add_argument('--s', default=0, type=int)
     parser.add_argument('--t', default=1, type=int)
     parser.add_argument('--txt_folder', default='csv', type=str)
     parser.add_argument('--save_weights', default='OCDA_wts', type=str)
-    parser.add_argument('--dset', type=str, default='office-home', choices=['visda-2017', 'office', 'office-home', 'office-caltech', 'pacs', 'domain_net'])
+    parser.add_argument('--dset', type=str, default='office-home', choices=['office-home'])
 
     args = parser.parse_args()
 
@@ -272,21 +243,6 @@ if __name__ == '__main__':
     if args.dset == 'office-home':
         names = ['Art', 'Clipart', 'Product', 'RealWorld']
         args.class_num = 65
-    if args.dset == 'office':
-        names = ['amazon', 'dslr', 'webcam']
-        args.class_num = 31
-    if args.dset == 'visda-2017':
-        names = ['train', 'validation']
-        args.class_num = 12
-    if args.dset == 'office-caltech':
-        names = ['amazon', 'caltech', 'dslr', 'webcam']
-        args.class_num = 7
-    if args.dset == 'pacs':
-        names = ['art_painting', 'cartoon', 'photo', 'sketch']
-        args.class_num = 7
-    if args.dset =='domain_net':
-        names = ['clipart', 'infograph', 'painting', 'quickdraw','sketch', 'real']
-        args.class_num = 345
 
     # Data
     print('==> Preparing data..')
@@ -346,9 +302,6 @@ if __name__ == '__main__':
             logwriter.writerow(['epoch', 'train loss', 'reg loss', 'train acc',
                                 'test loss', 'test acc'])
 
-    mode = 'online' if args.wandb else 'disabled'
-    wandb.init(project='OCDA', entity='vclab', name=f'{args.dset} - {names[args.s]} to {names[args.t]} {args.suffix}', mode=mode)#!@
-
     print(f'\nStarting training {names[args.s]} to others.')
     train_len = len(all_dset['train'])
     test_len = len(all_dset['test'])
@@ -362,4 +315,3 @@ if __name__ == '__main__':
         if epoch % args.interval == 0:
             print('\n Start Testing')
             test_loss, test_acc = test(epoch, all_loader['test'])
-            wandb.log({ 'test_loss': test_loss,  'test_acc': test_acc})

@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import transforms
-from wandb.sdk.lib import disabled
 import network, loss
 from torch.utils.data import DataLoader
 from helper.data_list import ImageList, ImageList_idx
@@ -17,7 +16,6 @@ from loss import CrossEntropyLabelSmooth
 from scipy.spatial.distance import cdist
 from sklearn.metrics import confusion_matrix
 from sklearn.cluster import KMeans
-import wandb
 from tqdm import tqdm
 
 def op_copy(optimizer):
@@ -69,10 +67,6 @@ def data_load(args):
 	# print(args.s_dset_path)
 	txt_src = open(args.s_dset_path).readlines()
 	txt_test = open(args.test_dset_path).readlines()
-	
-	if args.dset =='domain_net':
-		txt_eval_dn = open(args.txt_eval_dn).readlines()
-		print("Data Samples: ", len(txt_eval_dn))
 
 	if not args.da == 'uda':
 		label_map_s = {}
@@ -113,19 +107,14 @@ def data_load(args):
 		tr_txt = txt_src
 
 	dsets["source_tr"] = ImageList(tr_txt, transform=image_train())
-	dset_loaders["source_tr"] = DataLoader(dsets["source_tr"], batch_size=train_bs, shuffle=True, num_workers=args.worker, drop_last=False)
+	dset_loaders["source_tr"] = DataLoader(dsets["source_tr"], batch_size=train_bs, shuffle=True, drop_last=False)
 	dsets["source_te"] = ImageList(te_txt, transform=image_test())
-	dset_loaders["source_te"] = DataLoader(dsets["source_te"], batch_size=train_bs, shuffle=True, num_workers=args.worker, drop_last=False)
+	dset_loaders["source_te"] = DataLoader(dsets["source_te"], batch_size=train_bs, shuffle=True, drop_last=False)
 	
 	dsets["test"] = ImageList(txt_test, transform=image_test())
-	dset_loaders["test"] = DataLoader(dsets["test"], batch_size=train_bs*2, shuffle=True, num_workers=args.worker, drop_last=False)
+	dset_loaders["test"] = DataLoader(dsets["test"], batch_size=train_bs*2, shuffle=True, drop_last=False)
 
-	if args.dset =='domain_net':
-		dsets["eval_dn"] = ImageList_idx(txt_eval_dn, transform=image_train())
-		dset_loaders["eval_dn"] = DataLoader(dsets["eval_dn"], batch_size=train_bs, shuffle=False, num_workers=args.worker,
-											drop_last=False)
-	else:
-		dset_loaders["eval_dn"] = dset_loaders["test"]
+	dset_loaders["eval_dn"] = dset_loaders["test"]
 
 	return dset_loaders
 
@@ -269,7 +258,6 @@ def train_source(args):
 
 		optimizer.zero_grad()
 		classifier_loss.backward()
-		wandb.log({'SRC Train: train_classifier_loss': classifier_loss.item()})
 		# print(f'Task: {args.name_src}, Iter:{iter_num}/{max_iter} \t train_classifier_loss {classifier_loss.item()}')
 
 		optimizer.step()
@@ -284,7 +272,6 @@ def train_source(args):
 			else:
 				acc_s_te, _ = cal_acc(dset_loaders['source_te'], netF, netB, netC, False)
 				log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name_src, iter_num, max_iter, acc_s_te)
-			wandb.log({'SRC TRAIN: Acc' : acc_s_te})
 			args.out_file.write(log_str + '\n')
 			args.out_file.flush()
 			print(log_str+'\n')
@@ -370,8 +357,7 @@ if __name__ == "__main__":
 	parser.add_argument('--max_epoch', type=int, default=25, help="max iterations")
 	parser.add_argument('--interval', type=int, default=25, help="interval")
 	parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
-	parser.add_argument('--worker', type=int, default=8, help="number of workers")
-	parser.add_argument('--dset', type=str, default='office-home', choices=['visda-2017', 'office', 'office-home', 'office-caltech', 'pacs', 'domain_net'])
+	parser.add_argument('--dset', type=str, default='office-home', choices=['office-home'])
 	parser.add_argument('--lr', type=float, default=1e-3, help="learning rate")
 	parser.add_argument('--net', type=str, default='deit_s', help="vgg16, resnet50, resnet101, vit, deit_s")
 	parser.add_argument('--seed', type=int, default=2020, help="random seed")
@@ -386,30 +372,12 @@ if __name__ == "__main__":
 	parser.add_argument('--bsp', type=bool, default=False)
 	parser.add_argument('--se', type=bool, default=False)
 	parser.add_argument('--nl', type=bool, default=False)
-	parser.add_argument('--wandb', type=int, default=0)
 	args = parser.parse_args()
 
 	if args.dset == 'office-home':
 		names = ['Art', 'Clipart', 'Product', 'RealWorld']
 		args.class_num = 65 
-	if args.dset == 'office':
-		names = ['amazon', 'dslr', 'webcam']
-		args.class_num = 31
-	if args.dset == 'visda-2017':
-		names = ['train', 'validation']
-		args.class_num = 12
-	if args.dset == 'office-caltech':
-		names = ['amazon', 'caltech', 'dslr', 'webcam']
-		args.class_num = 10
-	if args.dset == 'pacs':
-		names = ['art_painting', 'cartoon', 'photo', 'sketch']
-		args.class_num = 7
-	if args.dset =='domain_net':
-		names = ['clipart', 'infograph', 'painting', 'quickdraw', 'sketch', 'real']
-		args.class_num = 345
-	if args.dset =='pacs':
-		names = ['art_painting','cartoon', 'photo', 'sketch']
-		args.class_num = 7
+
 
 	os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
 	SEED = args.seed
@@ -422,8 +390,6 @@ if __name__ == "__main__":
 	folder = './data/'
 	args.s_dset_path = folder + args.dset + '/' + names[args.s] + '.txt'
 	args.test_dset_path = folder + args.dset + '/' + names[args.t] + '.txt'     
-	mode = 'online' if args.wandb else 'disabled'
-	wandb.init(project='Source Training', entity='vclab', name=f'{args.dset} {args.net} = SRC Train: {names[args.s]}', mode=mode)
 	print(print_args(args))
 	if args.dset == 'office-home':
 		if args.da == 'pda':
@@ -457,10 +423,7 @@ if __name__ == "__main__":
 		folder = './data/'
 		args.s_dset_path = folder + args.dset + '/' + names[args.s] + '.txt'
 		args.test_dset_path = folder + args.dset + '/' + names[args.t] + '.txt'
-		if args.dset =='domain_net':
-			args.txt_eval_dn = folder + args.dset + '/' + names[args.t] + '_test.txt'
-		else:
-			args.txt_eval_dn = args.test_dset_path
+		args.txt_eval_dn = args.test_dset_path
 
 
 		if args.dset == 'office-home':

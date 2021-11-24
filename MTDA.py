@@ -19,7 +19,7 @@ import torch.optim as optim
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import network
-from mixup_utils import progress_bar
+from helper.mixup_utils import progress_bar
 from helper.data_list import ImageList_idx, ImageList, ImageList_MixUp
 from torch.utils.data import DataLoader
 import ml_collections
@@ -41,15 +41,6 @@ def init_src_model_load(args):
     netB = network.feat_bootleneck(type='bn', feature_dim=netF.in_features,bottleneck_dim=256).cuda()
     netC = network.feat_classifier(type='wn', class_num=args.class_num, bottleneck_dim=256).cuda()
 
-    if torch.cuda.device_count() >= 1:
-        gpu_list = []
-        for i in range(len(args.gpu_id.split(','))):
-            gpu_list.append(i)
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
-        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-        netF = nn.DataParallel(netF, device_ids=gpu_list)
-        netB = nn.DataParallel(netB, device_ids=gpu_list)
-        netC = nn.DataParallel(netC, device_ids=gpu_list)
     return netF, netB, netC
 
 def image_train(resize_size=256, crop_size=224, alexnet=False):
@@ -83,22 +74,10 @@ def data_load(args):
     txt_tar = open(f'{args.txt_folder}/{args.dset}/{names[args.s]}.csv').readlines() 
     print("Source Domain: ", names[args.s], "No. of Images: ", len(txt_tar))
     dsets['train'] = ImageList_MixUp(txt_tar, transform=image_train()) 
-    dset_loaders['train'] = DataLoader(dsets['train'], batch_size=args.batch_size, shuffle=True, num_workers=args.worker, drop_last=False)
+    dset_loaders['train'] = DataLoader(dsets['train'], batch_size=args.batch_size, shuffle=True, drop_last=False)
     
     dsets['test'] = dsets['train']
     dset_loaders['test'] = dset_loaders['train']
-
-    if args.dset =='domain_net':
-        txt_tar = []
-        for i in range(6):
-            if i == args.s:
-                continue
-            tmp = open(f'data/{args.dset}/{names[args.s].lower()}_test.txt').readlines()
-            txt_tar.extend(tmp)
-        txt_test = txt_tar.copy()   
-
-        dsets["test"] = ImageList(txt_test, transform=image_train())
-        dset_loaders["test"] = DataLoader(dsets["test"], batch_size=args.batch_size*2, shuffle=True, drop_last=False)
 
     return dset_loaders,dsets
 
@@ -166,9 +145,6 @@ def train(args, epoch,all_loader):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        wandb.log({'train_loss': train_loss/(batch_idx+1),
-                'train_acc': 100.*correct/total, 
-            })
     
         progress_bar(batch_idx, len(all_loader),
                     'Loss: %.3f | Acc: %.3f%% (%d/%d)'
@@ -235,14 +211,11 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
     parser.add_argument('--resume', '-r', action='store_true',
                         help='resume from checkpoint')
-    parser.add_argument('--net', default="deit_s", type=str,
-                        help='model type (default: ResNet18)')
+    parser.add_argument('--net', default="deit_s", type=str, help='model type (default: ResNet18)')
     parser.add_argument('--name', default='0', type=str, help='name of run')
-    parser.add_argument('--suffix', default='0', type=str, help='wandb name of run')
+    parser.add_argument('--suffix', default='0', type=str, help=' name of run')
     parser.add_argument('--seed', default=0, type=int, help='random seed')
     parser.add_argument('--batch_size', default=32, type=int, help='batch size')
-    parser.add_argument('--test_bs', default='64', type=int)
-    parser.add_argument('--worker', type=int, default=8, help="number of workers")
 
     parser.add_argument('--epoch', default=200, type=int,
                         help='total epochs to run')
@@ -252,12 +225,10 @@ if __name__ == '__main__':
     parser.add_argument('--decay', default=1e-4, type=float, help='weight decay')
     parser.add_argument('--alpha', default=1., type=float,
                         help='mixup interpolation coefficient (default: 1)')
-    parser.add_argument('--wandb', type=int, default=0)
     parser.add_argument('--s', default=0, type=int)
     parser.add_argument('--txt_folder', default='csv', type=str)
     parser.add_argument('--save_weights', default='MTDA_weights', type=str)
-    parser.add_argument('--dset', type=str, default='office-home',
-                        choices=['visda-2017', 'office', 'office-home', 'office-caltech', 'pacs', 'domain_net'])
+    parser.add_argument('--dset', type=str, default='office-home', choices=['office-home'])
 
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
@@ -265,7 +236,7 @@ if __name__ == '__main__':
     use_cuda = torch.cuda.is_available()
 
     best_acc = 0  # best test accuracy
-    start_epoch = 0  # start from epoch 0 or last checkpoint epoch
+    start_epoch = 1  # start from epoch 0 or last checkpoint epoch
 
     if args.seed != 0:
         torch.manual_seed(args.seed)
@@ -273,21 +244,6 @@ if __name__ == '__main__':
     if args.dset == 'office-home':
         names = ['Art', 'Clipart', 'Product', 'RealWorld']
         args.class_num = 65
-    if args.dset == 'office':
-        names = ['amazon', 'dslr', 'webcam']
-        args.class_num = 31
-    if args.dset == 'visda-2017':
-        names = ['train', 'validation']
-        args.class_num = 12
-    if args.dset == 'office-caltech':
-        names = ['amazon', 'caltech', 'dslr', 'webcam']
-        args.class_num = 7
-    if args.dset == 'pacs':
-        names = ['art_painting', 'cartoon', 'photo', 'sketch']
-        args.class_num = 7
-    if args.dset =='domain_net':
-        names = ['clipart', 'infograph', 'painting', 'quickdraw','sketch', 'real']
-        args.class_num = 345
 
     # Data
     print('==> Preparing data..')
@@ -323,7 +279,6 @@ if __name__ == '__main__':
         netF.cuda()
         netB.cuda()
         netC.cuda()
-        # net = torch.nn.DataParallel(net)
         cudnn.benchmark = True
         print('Using CUDA..')
 
@@ -347,9 +302,6 @@ if __name__ == '__main__':
             logwriter.writerow(['epoch', 'train loss', 'reg loss', 'train acc',
                                 'test loss', 'test acc'])
 
-    mode = 'online' if args.wandb else 'disabled'
-    wandb.init(project='MTDA_'+args.dset, entity='vclab', name=f'{names[args.s]} to other {args.suffix}', mode=mode)#!@
-
     print(f'\nStarting training {names[args.s]} to others.')
     train_len = len(all_dset['train'])
     test_len = len(all_dset['test'])
@@ -363,6 +315,3 @@ if __name__ == '__main__':
         if epoch % args.interval == 0:
             print('\n Start Testing')
             test_loss, test_acc = test(epoch,all_loader['test'])
-            wandb.log({ 'test_loss': test_loss,  
-                        'test_acc': test_acc,
-                        })

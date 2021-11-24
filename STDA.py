@@ -21,9 +21,6 @@ from loss import KnowledgeDistillationLoss, SoftCrossEntropyLoss
 from timm.data.auto_augment import rand_augment_transform # timm for randaugment
 from helper.plr import plr
 np.set_printoptions(threshold=sys.maxsize)
-import wandb
-# from torchsummary import summary
-#os.environ["WANDB_RUN_ID"] = wandb.util.generate_id()
 
 def op_copy(optimizer):
     for param_group in optimizer.param_groups:
@@ -90,24 +87,17 @@ def data_load(args):
     test_bs = args.test_bs
     txt_tar = open(args.t_dset_path).readlines()
     txt_test = open(args.test_dset_path).readlines()
-    txt_eval_dn = open(args.txt_eval_dn).readlines()
 
     dsets["target"] = ImageList_idx(txt_tar, transform=image_train())
-    dset_loaders["target"] = DataLoader(dsets["target"], batch_size=train_bs, shuffle=True, num_workers=args.worker,
+    dset_loaders["target"] = DataLoader(dsets["target"], batch_size=train_bs, shuffle=True,
                                          drop_last=True)
     dsets["test"] = ImageList_idx(txt_test, transform=image_test())
-    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=test_bs, shuffle=False, num_workers=args.worker,
+    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=test_bs, shuffle=False,
                                       drop_last=False)
     dsets["strong_aug"] = ImageList_idx(txt_test, transform=strong_augment())
-    dset_loaders["strong_aug"] = DataLoader(dsets["strong_aug"], batch_size=test_bs, shuffle=False, num_workers=args.worker,
+    dset_loaders["strong_aug"] = DataLoader(dsets["strong_aug"], batch_size=test_bs, shuffle=False,
                                        drop_last=False)
-    if args.dset =='domain_net':
-        dsets["eval_dn"] = ImageList_idx(txt_eval_dn, transform=image_train())
-        dset_loaders["eval_dn"] = DataLoader(dsets["eval_dn"], batch_size=test_bs, shuffle=False, num_workers=args.worker,
-                                            drop_last=False)
-    else:
-        dset_loaders["eval_dn"] = dset_loaders["test"]
-
+    dset_loaders["eval_dn"] = dset_loaders["test"]
     return dset_loaders,dsets
 
 def cal_acc(loader, netF, netB, netC, flag=False):
@@ -130,7 +120,6 @@ def cal_acc(loader, netF, netB, netC, flag=False):
     _, predict = torch.max(all_output, 1)
     accuracy = torch.sum(torch.squeeze(predict).float() == all_label).item() / float(all_label.size()[0])
     mean_ent = torch.mean(loss.Entropy(nn.Softmax(dim=1)(all_output))).cpu().data.item()
-    #wandb.log({"Test accuracy": accuracy*100, "Test Mean Entropy": mean_ent})
 
     if args.dset == 'visda-2017':
         matrix = confusion_matrix(all_label, torch.squeeze(predict).float())
@@ -173,11 +162,8 @@ def train_target(args):
         elif args.net == 'deit_b':
             netF = torch.hub.load('facebookresearch/deit:main', 'deit_base_patch16_224', pretrained=True).cuda()
         netF.in_features = 1000
-    
-    # summary(netF, (3, 224, 224))
         
-    netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features,
-                                   bottleneck_dim=args.bottleneck).cuda()
+    netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).cuda()
     netC = network.feat_classifier(type=args.layer, class_num=args.class_num, bottleneck_dim=args.bottleneck).cuda()
 
 
@@ -189,16 +175,6 @@ def train_target(args):
     netC.load_state_dict(torch.load(modelpath))
     print('Model Loaded')
 
-    if torch.cuda.device_count() >= 1:
-        gpu_list = []
-        for i in range(len(args.gpu_id.split(','))):
-            gpu_list.append(i)
-        print("Let's use", len(gpu_list), "GPUs!")
-        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-        netF = nn.DataParallel(netF, device_ids=gpu_list)
-        netB = nn.DataParallel(netB, device_ids=gpu_list)
-        netC = nn.DataParallel(netC, device_ids=gpu_list)
-    
     param_group = []
     for k, v in netF.named_parameters():
         if args.lr_decay1 > 0:
@@ -231,7 +207,6 @@ def train_target(args):
         except:
             iter_test = iter(dset_loaders["target"])
             inputs_test, _, tar_idx = iter_test.next()
-            #inputs_test_stg = strong_aug_list[tar_idx]
             inputs_test_stg = get_strong_aug(dsets["strong_aug"], tar_idx)
 
         if inputs_test.size(0) == 1:  #Why this?
@@ -245,7 +220,6 @@ def train_target(args):
             netF.eval()
             netB.eval()
             netC.eval()
-            ################################ Done ###################################
             print('Starting to find Pseudo Labels! May take a while :)')
             mem_label, soft_output, dd, mean_all_output, actual_label = obtain_label(dset_loaders['test'], netF, netB, netC, args) # test loader same as targe but has 3*batch_size compared to target and train
 
@@ -304,7 +278,6 @@ def train_target(args):
             #entropy_loss = torch.mean(loss.soft_CE(softmax_outputs_stg,gt_w))
             en_loss = entropy_loss.item()
             #entropy_loss = dist_loss(outputs_test, outputs_test,T=1.0)
-            #wandb.log({"Entropy Loss":entropy_loss.item()})
             #entropy_loss = torch.mean(loss.Entropy(softmax_out))
             if args.gent:
                 #softmax_out = nn.Softmax(dim=1)(outputs)
@@ -333,9 +306,7 @@ def train_target(args):
             cs_loss = consistency_loss.item()
         else:
             consistency_loss = torch.tensor(0.0).cuda()
-        total_loss = classifier_loss + im_loss + fbnm_loss + consistency_loss
-        wandb.log({"total loss":total_loss.item(),"cls loss":classifier_loss.item(), "im_loss":im_loss.item(),"consistency loss":consistency_loss.item(), "fbnm loss":fbnm_loss.item()})
-            
+        total_loss = classifier_loss + im_loss + fbnm_loss + consistency_loss            
 
         #classifier_loss = L2(outputs_stg,outputs_test)
         optimizer.zero_grad()
@@ -351,7 +322,6 @@ def train_target(args):
             acc_eval_dn, _ = cal_acc(dset_loaders["eval_dn"], netF, netB, netC, False)
             if acc_eval_dn > max_acc:
                 max_acc=acc_eval_dn
-            wandb.log({"STDA_Test_Accuracy":acc_eval_dn})
 
             log_str = '\nTask: {}, Iter:{}/{}; Final Eval test = {:.2f}%'.format(args.name, iter_num, max_iter, acc_eval_dn)
             
@@ -462,7 +432,6 @@ def obtain_label(loader, netF, netB, netC, args):
         pred_label = labelset[pred_label]
 
     acc = np.sum(pred_label == all_label.float().numpy()) / len(all_fea)
-    wandb.log({"Pseudo_Label_Accuracy":acc*100})
     log_str = 'Accuracy = {:.2f}% -> {:.2f}%'.format(accuracy * 100, acc * 100)
 
     args.out_file.write(log_str + '\n')
@@ -507,10 +476,7 @@ if __name__ == "__main__":
     parser.add_argument('--interval', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--test_bs', type=int, default=256, help="batch_size")
-
-    parser.add_argument('--worker', type=int, default=8, help="numbeqr of workers")
-    parser.add_argument('--dset', type=str, default='visda-2017',
-                        choices=['visda-2017', 'office', 'office-home', 'office-caltech', 'pacs', 'domain_net'])
+    parser.add_argument('--dset', type=str, default='office-home', choices='office-home')
     parser.add_argument('--lr', type=float, default=1e-3, help="learning rate")
     parser.add_argument('--net', type=str, default='vit', help="alexnet, vgg16, resnet50, res101")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
@@ -543,7 +509,6 @@ if __name__ == "__main__":
     parser.add_argument('--input_src', type=str, default='src_train', help='Load SRC training wt path')
     parser.add_argument('--da', type=str, default='uda', choices=['uda', 'pda'])
     parser.add_argument('--issave', type=bool, default=True)
-    parser.add_argument('--wandb', type=int, default=1)
     parser.add_argument('--earlystop', type=int, default=0)
     parser.add_argument('--plr', type=int, default=1)
     parser.add_argument('--soft_pl', type=int, default=1)
@@ -553,24 +518,6 @@ if __name__ == "__main__":
     if args.dset == 'office-home':
         names = ['Art', 'Clipart', 'Product', 'RealWorld']
         args.class_num = 65
-    if args.dset == 'office':
-        names = ['amazon', 'dslr', 'webcam']
-        args.class_num = 31
-    if args.dset == 'visda-2017':
-        names = ['train', 'validation']
-        args.class_num = 12
-    if args.dset == 'office-caltech':
-        names = ['amazon', 'caltech', 'dslr', 'webcam']
-        args.class_num = 7
-    if args.dset == 'pacs':
-        names = ['art_painting', 'cartoon', 'photo', 'sketch']
-        args.class_num = 7
-    if args.dset =='domain_net':
-        names = ['clipart', 'infograph', 'painting', 'quickdraw','sketch', 'real']
-        args.class_num = 345
-    if args.dset =='pacs':
-        names = ['art_painting','cartoon', 'photo', 'sketch']
-        args.class_num = 7
         
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -592,13 +539,7 @@ if __name__ == "__main__":
         args.s_dset_path = folder + args.dset + '/' + names[args.s] + '.txt'
         args.test_dset_path = folder + args.dset + '/' + names[i] + '.txt'
         args.t_dset_path = folder + args.dset + '/' + names[i] + '.txt'
-        if args.dset =='domain_net':
-            args.txt_eval_dn = folder + args.dset + '/' + names[i] + '_test.txt'
-        else:
-            args.txt_eval_dn = args.t_dset_path
-
-        mode = 'online' if args.wandb else 'disabled'
-        wandb.init(project='STDA_'+args.dset, entity='vclab', name=f'{names[args.s]} to {names[i]} '+args.suffix, reinit=True,mode=mode)
+        args.txt_eval_dn = args.t_dset_path
 
         args.output_dir_src = osp.join(args.input_src, args.da, args.dset, names[args.s][0].upper())
         args.output_dir = osp.join(args.output, 'STDA', args.dset, names[args.s][0].upper() + names[i][0].upper())
