@@ -316,10 +316,7 @@ if __name__ == "__main__":
 
         args.name = names[args.s][0].upper() + names[args.t][0].upper()
 
-        if args.source_test:
-            args.output_dir_src = osp.join(args.output, args.da, args.dset, names[args.s][0].upper())
-        else:
-            args.output_dir_src = osp.join(args.output, 'STDA', args.dset, args.name.upper())
+        args.output_dir_src = osp.join(args.output, 'STDA', args.dset, args.name.upper())
         folder = './data/'
         args.s_dset_path = folder + args.dset + '/' + names[args.s] + '.txt'
         args.test_dset_path = folder + args.dset + '/' + names[args.t] + '.txt'
