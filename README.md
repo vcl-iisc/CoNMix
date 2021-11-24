@@ -1,5 +1,5 @@
-# Source-Free Multi-Target Domain Adaptation
-Official pytorch implementation for **Knowledge Distillation based Source-Free Multi-Target Domain Adaptation**.
+# CoNMix
+Official pytorch implementation for **CoNMix**.
 
 ## Dataset Prepration:
 - Please manually download the dataset [Office-Home](https://www.dropbox.com/sh/vja4cdimm0k2um3/AACCKNKV8-HVbEZDPDCyAyf_a?dl=0),  from the official websites, and modify the path of images in each '.txt' under the folder './data/'.
