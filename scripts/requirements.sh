@@ -8,3 +8,4 @@ pip install wandb
 conda install -y -c anaconda scikit-learn
 conda install -y -c anaconda seaborn
 pip install ml-collections==0.1.0
+pip install tqdm
