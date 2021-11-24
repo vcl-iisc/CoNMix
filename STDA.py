@@ -12,14 +12,14 @@ import torch.optim as optim
 from torchvision import transforms
 import network, loss
 from torch.utils.data import DataLoader
-from data_list import ImageList, ImageList_idx
+from helper.data_list import ImageList, ImageList_idx
 import random, pdb, math, copy
 from tqdm import tqdm
 from scipy.spatial.distance import cdist
 from sklearn.metrics import confusion_matrix
 from loss import KnowledgeDistillationLoss, SoftCrossEntropyLoss
 from timm.data.auto_augment import rand_augment_transform # timm for randaugment
-from rlcc import rlcc
+from helper.plr import plr
 np.set_printoptions(threshold=sys.maxsize)
 import wandb
 # from torchsummary import summary
@@ -132,15 +132,18 @@ def cal_acc(loader, netF, netB, netC, flag=False):
     mean_ent = torch.mean(loss.Entropy(nn.Softmax(dim=1)(all_output))).cpu().data.item()
     #wandb.log({"Test accuracy": accuracy*100, "Test Mean Entropy": mean_ent})
 
-    if flag:
+    if args.dset == 'visda-2017':
         matrix = confusion_matrix(all_label, torch.squeeze(predict).float())
         acc = matrix.diagonal() / matrix.sum(axis=1) * 100
         aacc = acc.mean()
         aa = [str(np.round(i, 2)) for i in acc]
         acc = ' '.join(aa)
-        return aacc, acc
-    else:
-        return accuracy * 100, mean_ent
+        print(f'Classwise Acc: {acc}')
+        print(f'Mean Acc: {aacc}')
+        
+        # return aacc, acc
+    # else:
+    return accuracy * 100, mean_ent
 
 def get_pseudo_gt(data_batch, netB, netF,netC):
     netB.eval()
@@ -190,7 +193,7 @@ def train_target(args):
         gpu_list = []
         for i in range(len(args.gpu_id.split(','))):
             gpu_list.append(i)
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
+        print("Let's use", len(gpu_list), "GPUs!")
         # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
         netF = nn.DataParallel(netF, device_ids=gpu_list)
         netB = nn.DataParallel(netB, device_ids=gpu_list)
@@ -246,13 +249,13 @@ def train_target(args):
             print('Starting to find Pseudo Labels! May take a while :)')
             mem_label, soft_output, dd, mean_all_output, actual_label = obtain_label(dset_loaders['test'], netF, netB, netC, args) # test loader same as targe but has 3*batch_size compared to target and train
 
-            if args.rlcc:
+            if args.plr:
                 if iter_num == 0:
                     prev_mem_label = mem_label
                     if args.soft_pl:
                         mem_label = dd
                 else:
-                    mem_label = rlcc(prev_mem_label, mem_label, dd, args.class_num, alpha = args.alpha)
+                    mem_label = plr(prev_mem_label, mem_label, dd, args.class_num, alpha = args.alpha)
                     if not args.soft_pl:
                         mem_label = mem_label.argmax(axis=1).astype(int)
                         refined_label = mem_label
@@ -352,9 +355,9 @@ def train_target(args):
 
             log_str = '\nTask: {}, Iter:{}/{}; Final Eval test = {:.2f}%'.format(args.name, iter_num, max_iter, acc_eval_dn)
             
-            torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F_" + args.savename + ".pt"))
-            torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B_" + args.savename + ".pt"))
-            torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C_" + args.savename + ".pt"))
+            torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F.pt"))
+            torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B.pt"))
+            torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C.pt"))
             print('model saved')
 
             args.out_file.write(log_str + '\n')
@@ -370,9 +373,9 @@ def train_target(args):
             netC.train()
 
     if args.issave:
-        torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F_" + args.savename + ".pt"))
-        torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B_" + args.savename + ".pt"))
-        torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C_" + args.savename + ".pt"))
+        torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F.pt"))
+        torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B.pt"))
+        torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C.pt"))
     print('Maximum Accuracy: ', max_acc)
     return netF, netB, netC
 
@@ -502,8 +505,8 @@ if __name__ == "__main__":
     parser.add_argument('--t', type=int, default=1, nargs='+', help="target")
     parser.add_argument('--max_epoch', type=int, default=20, help="max iterations")
     parser.add_argument('--interval', type=int, default=20)
-    parser.add_argument('--batch_size', type=int, default=80, help="batch_size")
-    parser.add_argument('--test_bs', type=int, default=1024, help="batch_size")
+    parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
+    parser.add_argument('--test_bs', type=int, default=256, help="batch_size")
 
     parser.add_argument('--worker', type=int, default=8, help="numbeqr of workers")
     parser.add_argument('--dset', type=str, default='visda-2017',
@@ -536,13 +539,13 @@ if __name__ == "__main__":
     parser.add_argument('--layer', type=str, default="wn", choices=["linear", "wn"])
     parser.add_argument('--classifier', type=str, default="bn", choices=["ori", "bn"])
     parser.add_argument('--distance', type=str, default='cosine', choices=["euclidean", "cosine"])
-    parser.add_argument('--output', type=str, default='san', help='Save ur weights here')
-    parser.add_argument('--output_src', type=str, default='src_train', help='Load SRC training wt path')
+    parser.add_argument('--output', type=str, default='STDA_weights', help='Save ur weights here')
+    parser.add_argument('--input_src', type=str, default='src_train', help='Load SRC training wt path')
     parser.add_argument('--da', type=str, default='uda', choices=['uda', 'pda'])
     parser.add_argument('--issave', type=bool, default=True)
     parser.add_argument('--wandb', type=int, default=1)
     parser.add_argument('--earlystop', type=int, default=0)
-    parser.add_argument('--rlcc', type=int, default=1)
+    parser.add_argument('--plr', type=int, default=1)
     parser.add_argument('--soft_pl', type=int, default=1)
     parser.add_argument('--suffix', type=str, default='')
     args = parser.parse_args()
@@ -568,7 +571,8 @@ if __name__ == "__main__":
     if args.dset =='pacs':
         names = ['art_painting','cartoon', 'photo', 'sketch']
         args.class_num = 7
-    # os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+        
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
     torch.manual_seed(SEED)
     torch.cuda.manual_seed(SEED)
@@ -596,7 +600,7 @@ if __name__ == "__main__":
         mode = 'online' if args.wandb else 'disabled'
         wandb.init(project='STDA_'+args.dset, entity='vclab', name=f'{names[args.s]} to {names[i]} '+args.suffix, reinit=True,mode=mode)
 
-        args.output_dir_src = osp.join(args.output_src, args.da, args.dset, names[args.s][0].upper())
+        args.output_dir_src = osp.join(args.input_src, args.da, args.dset, names[args.s][0].upper())
         args.output_dir = osp.join(args.output, 'STDA', args.dset, names[args.s][0].upper() + names[i][0].upper())
         args.name = names[args.s][0].upper() + names[i][0].upper()
 
@@ -604,10 +608,8 @@ if __name__ == "__main__":
             os.system('mkdir -p ' + args.output_dir)
         if not osp.exists(args.output_dir):
             os.mkdir(args.output_dir)
-
-        args.savename = 'par_' + str(args.cls_par)
         
-        args.out_file = open(osp.join(args.output_dir, 'log_' + args.savename + '.txt'), 'w')
+        args.out_file = open(osp.join(args.output_dir, 'log.txt'), 'w')
         args.out_file.write(print_args(args) + '\n')
         args.out_file.flush()
         train_target(args)

@@ -230,22 +230,13 @@ def test_target(args):
         netB = nn.DataParallel(netB, device_ids=gpu_list)
         netC = nn.DataParallel(netC, device_ids=gpu_list)
     
-    if args.source_test:
-        args.modelpath = args.output_dir_src + '/source_F.pt'   
-        netF.load_state_dict(torch.load(args.modelpath))
-        args.modelpath = args.output_dir_src + '/source_B.pt'   
-        netB.load_state_dict(torch.load(args.modelpath))
-        args.modelpath = args.output_dir_src + '/source_C.pt'   
-        netC.load_state_dict(torch.load(args.modelpath))
-    else:
-        args.modelpath = args.output_dir_src + '/target_F_'+ args.savename + '.pt'   
-        netF.load_state_dict(torch.load(args.modelpath))
-        args.modelpath = args.output_dir_src + '/target_B_'+ args.savename + '.pt'   
-        netB.load_state_dict(torch.load(args.modelpath))
-        args.modelpath = args.output_dir_src + '/target_C_'+ args.savename + '.pt'   
-        netC.load_state_dict(torch.load(args.modelpath))
+    args.modelpath = args.output_dir_src + '/target_F.pt'   
+    netF.load_state_dict(torch.load(args.modelpath))
+    args.modelpath = args.output_dir_src + '/target_B.pt'   
+    netB.load_state_dict(torch.load(args.modelpath))
+    args.modelpath = args.output_dir_src + '/target_C.pt'   
+    netC.load_state_dict(torch.load(args.modelpath))
 
-    
     netF.eval()
     netB.eval()
     netC.eval()
@@ -295,7 +286,6 @@ if __name__ == "__main__":
     parser.add_argument('--nl', type=bool, default=False)
     parser.add_argument('--wandb', type=int, default=0)
     parser.add_argument('--cls_par', type=float, default=0.2)
-    parser.add_argument('--source_test', type=int, default=0)
 
     args = parser.parse_args()
 
@@ -329,8 +319,7 @@ if __name__ == "__main__":
     folder = './data/'
     args.s_dset_path = folder + args.dset + '/' + names[args.s] + '.txt'
     args.test_dset_path = folder + args.dset + '/' + names[args.t] + '.txt'     
-    mode = 'online' if args.wandb else 'disabled'
-    wandb.init(project='BMVC_src_train_DomainNet', entity='vclab', name=f'SRC Train: {names[args.s]}', mode=mode)
+
     print(print_args(args))
     if args.dset == 'office-home':
         if args.da == 'pda':
@@ -344,7 +333,6 @@ if __name__ == "__main__":
 
     
     args.name_src = names[args.s][0].upper()
-    args.savename = 'par_' + str(args.cls_par)
     args.save_dir = osp.join('test_target/no_grad', args.dset)
     if not osp.exists(args.save_dir):
         os.system('mkdir -p ' + args.save_dir)

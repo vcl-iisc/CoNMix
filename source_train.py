@@ -10,7 +10,7 @@ from torchvision import transforms
 from wandb.sdk.lib import disabled
 import network, loss
 from torch.utils.data import DataLoader
-from data_list import ImageList, ImageList_idx
+from helper.data_list import ImageList, ImageList_idx
 import random, pdb, math, copy
 from tqdm import tqdm
 from loss import CrossEntropyLabelSmooth
@@ -371,16 +371,16 @@ if __name__ == "__main__":
 	parser.add_argument('--interval', type=int, default=25, help="interval")
 	parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
 	parser.add_argument('--worker', type=int, default=8, help="number of workers")
-	parser.add_argument('--dset', type=str, default='office', choices=['visda-2017', 'office', 'office-home', 'office-caltech', 'pacs', 'domain_net'])
+	parser.add_argument('--dset', type=str, default='office-home', choices=['visda-2017', 'office', 'office-home', 'office-caltech', 'pacs', 'domain_net'])
 	parser.add_argument('--lr', type=float, default=1e-3, help="learning rate")
-	parser.add_argument('--net', type=str, default='vit', help="vgg16, resnet50, resnet101")
+	parser.add_argument('--net', type=str, default='deit_s', help="vgg16, resnet50, resnet101, vit, deit_s")
 	parser.add_argument('--seed', type=int, default=2020, help="random seed")
 	parser.add_argument('--bottleneck', type=int, default=256)
 	parser.add_argument('--epsilon', type=float, default=1e-5)
 	parser.add_argument('--layer', type=str, default="wn", choices=["linear", "wn"])
 	parser.add_argument('--classifier', type=str, default="bn", choices=["ori", "bn"])
 	parser.add_argument('--smooth', type=float, default=0.1)   
-	parser.add_argument('--output', type=str, default='san')
+	parser.add_argument('--output', type=str, default='src_train')
 	parser.add_argument('--da', type=str, default='uda', choices=['uda', 'pda', 'oda'])
 	parser.add_argument('--trte', type=str, default='val', choices=['full', 'val'])
 	parser.add_argument('--bsp', type=bool, default=False)
