@@ -20,6 +20,7 @@ from sklearn.metrics import confusion_matrix
 from loss import KnowledgeDistillationLoss, SoftCrossEntropyLoss
 from timm.data.auto_augment import rand_augment_transform # timm for randaugment
 from helper.plr import plr
+import wandb
 np.set_printoptions(threshold=sys.maxsize)
 
 def op_copy(optimizer):
@@ -87,14 +88,20 @@ def data_load(args):
     test_bs = args.test_bs
     txt_tar = open(args.t_dset_path).readlines()
     txt_test = open(args.test_dset_path).readlines()
+    txt_eval_dn = open(args.txt_eval_dn).readlines()
+
 
     dsets["target"] = ImageList_idx(txt_tar, transform=image_train())
-    dset_loaders["target"] = DataLoader(dsets["target"], batch_size=train_bs, shuffle=True, num_workers= args.num_worker, drop_last=True)
+    dset_loaders["target"] = DataLoader(dsets["target"], batch_size=train_bs, shuffle=True, num_workers= args.worker, drop_last=True)
     dsets["test"] = ImageList_idx(txt_test, transform=image_test())
-    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=test_bs, shuffle=False, num_workers= args.num_worker, drop_last=False)
+    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=test_bs, shuffle=False, num_workers= args.worker, drop_last=False)
     dsets["strong_aug"] = ImageList_idx(txt_test, transform=strong_augment())
-    dset_loaders["strong_aug"] = DataLoader(dsets["strong_aug"], batch_size=test_bs, shuffle=False, num_workers= args.num_worker, drop_last=False)
-    dset_loaders["eval_dn"] = dset_loaders["test"]
+    dset_loaders["strong_aug"] = DataLoader(dsets["strong_aug"], batch_size=test_bs, shuffle=False, num_workers= args.worker, drop_last=False)
+    if args.dset =='domain_net':
+        dsets["eval_dn"] = ImageList_idx(txt_eval_dn, transform=image_train())
+        dset_loaders["eval_dn"] = DataLoader(dsets["eval_dn"], batch_size=test_bs, shuffle=False, num_workers=args.worker, drop_last=False)
+    else:
+        dset_loaders["eval_dn"] = dset_loaders["test"]
     return dset_loaders,dsets
 
 def cal_acc(loader, netF, netB, netC, flag=False):
@@ -171,6 +178,16 @@ def train_target(args):
     modelpath = args.output_dir_src + '/source_C.pt'
     netC.load_state_dict(torch.load(modelpath))
     print('Model Loaded')
+
+    if torch.cuda.device_count() >= 1:
+        gpu_list = []
+        for i in range(len(args.gpu_id.split(','))):
+            gpu_list.append(i)
+        print("Let's use", len(gpu_list), "GPUs!")
+        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+        netF = nn.DataParallel(netF, device_ids=gpu_list)
+        netB = nn.DataParallel(netB, device_ids=gpu_list)
+        netC = nn.DataParallel(netC, device_ids=gpu_list)
 
     param_group = []
     for k, v in netF.named_parameters():
@@ -305,6 +322,8 @@ def train_target(args):
             consistency_loss = torch.tensor(0.0).cuda()
         total_loss = classifier_loss + im_loss + fbnm_loss + consistency_loss            
 
+        wandb.log({"total loss":total_loss.item(),"cls loss":classifier_loss.item(), "im_loss":im_loss.item(),"consistency loss":consistency_loss.item(), "fbnm loss":fbnm_loss.item()})
+
         #classifier_loss = L2(outputs_stg,outputs_test)
         optimizer.zero_grad()
         total_loss.backward()
@@ -319,7 +338,7 @@ def train_target(args):
             acc_eval_dn, _ = cal_acc(dset_loaders["eval_dn"], netF, netB, netC, False)
             if acc_eval_dn > max_acc:
                 max_acc=acc_eval_dn
-
+            wandb.log({"STDA_Test_Accuracy":acc_eval_dn})
             log_str = '\nTask: {}, Iter:{}/{}; Final Eval test = {:.2f}%'.format(args.name, iter_num, max_iter, acc_eval_dn)
             
             torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F.pt"))
@@ -429,6 +448,7 @@ def obtain_label(loader, netF, netB, netC, args):
         pred_label = labelset[pred_label]
 
     acc = np.sum(pred_label == all_label.float().numpy()) / len(all_fea)
+    wandb.log({"Pseudo_Label_Accuracy":acc*100})
     log_str = 'Accuracy = {:.2f}% -> {:.2f}%'.format(accuracy * 100, acc * 100)
 
     args.out_file.write(log_str + '\n')
@@ -510,13 +530,33 @@ if __name__ == "__main__":
     parser.add_argument('--plr', type=int, default=1)
     parser.add_argument('--soft_pl', type=int, default=1)
     parser.add_argument('--suffix', type=str, default='')
-    parser.add_argument('--num_worker', type=int, default=8)
+    parser.add_argument('--nworker', type=int, default=8)
+    parser.add_argument('--wandb', type=int, default=1)
+
 
     args = parser.parse_args()
 
     if args.dset == 'office-home':
         names = ['Art', 'Clipart', 'Product', 'RealWorld']
         args.class_num = 65
+    if args.dset == 'office':
+        names = ['amazon', 'dslr', 'webcam']
+        args.class_num = 31
+    if args.dset == 'visda-2017':
+        names = ['train', 'validation']
+        args.class_num = 12
+    if args.dset == 'office-caltech':
+        names = ['amazon', 'caltech', 'dslr', 'webcam']
+        args.class_num = 7
+    if args.dset == 'pacs':
+        names = ['art_painting', 'cartoon', 'photo', 'sketch']
+        args.class_num = 7
+    if args.dset =='domain_net':
+        names = ['clipart', 'infograph', 'painting', 'quickdraw','sketch', 'real']
+        args.class_num = 345
+    if args.dset =='pacs':
+        names = ['art_painting','cartoon', 'photo', 'sketch']
+        args.class_num = 7
         
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -538,7 +578,13 @@ if __name__ == "__main__":
         args.s_dset_path = folder + args.dset + '/' + names[args.s] + '.txt'
         args.test_dset_path = folder + args.dset + '/' + names[i] + '.txt'
         args.t_dset_path = folder + args.dset + '/' + names[i] + '.txt'
-        args.txt_eval_dn = args.t_dset_path
+        if args.dset =='domain_net':
+            args.txt_eval_dn = folder + args.dset + '/' + names[i] + '_test.txt'
+        else:
+            args.txt_eval_dn = args.t_dset_path
+
+        mode = 'online' if args.wandb else 'disabled'
+        wandb.init(project='STDA_'+args.dset, entity='vclab', name=f'{names[args.s]} to {names[i]} '+args.suffix, reinit=True,mode=mode)
 
         args.output_dir_src = osp.join(args.input_src, args.da, args.dset, names[args.s][0].upper())
         args.output_dir = osp.join(args.output, 'STDA', args.dset, names[args.s][0].upper() + names[i][0].upper())
