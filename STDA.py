@@ -89,14 +89,11 @@ def data_load(args):
     txt_test = open(args.test_dset_path).readlines()
 
     dsets["target"] = ImageList_idx(txt_tar, transform=image_train())
-    dset_loaders["target"] = DataLoader(dsets["target"], batch_size=train_bs, shuffle=True,
-                                         drop_last=True)
+    dset_loaders["target"] = DataLoader(dsets["target"], batch_size=train_bs, shuffle=True, num_workers= args.num_worker, drop_last=True)
     dsets["test"] = ImageList_idx(txt_test, transform=image_test())
-    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=test_bs, shuffle=False,
-                                      drop_last=False)
+    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=test_bs, shuffle=False, num_workers= args.num_worker, drop_last=False)
     dsets["strong_aug"] = ImageList_idx(txt_test, transform=strong_augment())
-    dset_loaders["strong_aug"] = DataLoader(dsets["strong_aug"], batch_size=test_bs, shuffle=False,
-                                       drop_last=False)
+    dset_loaders["strong_aug"] = DataLoader(dsets["strong_aug"], batch_size=test_bs, shuffle=False, num_workers= args.num_worker, drop_last=False)
     dset_loaders["eval_dn"] = dset_loaders["test"]
     return dset_loaders,dsets
 
@@ -439,7 +436,7 @@ def obtain_label(loader, netF, netB, netC, args):
     print(log_str + '\n')
 
     dd = F.softmax(torch.from_numpy(dd), dim=1)
-    return pred_label, all_output.cpu().numpy(), dd.numpy().astype('float32') ,mean_all_output, all_label.cpu().numpy().astype(np.uint16)
+    return pred_label, all_output.cpu().numpy(), dd.numpy().astype('float32'), mean_all_output, all_label.cpu().numpy().astype(np.uint16)
 
 def distributed_sinkhorn(out,eps=0.1, niters=3,world_size=1):
     Q = torch.exp(out / eps).t() # Q is K-by-B for consistency with notations from our paper
@@ -513,6 +510,8 @@ if __name__ == "__main__":
     parser.add_argument('--plr', type=int, default=1)
     parser.add_argument('--soft_pl', type=int, default=1)
     parser.add_argument('--suffix', type=str, default='')
+    parser.add_argument('--num_worker', type=int, default=8)
+
     args = parser.parse_args()
 
     if args.dset == 'office-home':
