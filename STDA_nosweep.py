@@ -179,15 +179,15 @@ def train_target(args):
     netC.load_state_dict(torch.load(modelpath))
     print('Model Loaded')
 
-    if torch.cuda.device_count() >= 1:
-        gpu_list = []
-        for i in range(len(args.gpu_id.split(','))):
-            gpu_list.append(i)
-        print("Let's use", len(gpu_list), "GPUs!")
-        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-        netF = nn.DataParallel(netF, device_ids=gpu_list)
-        netB = nn.DataParallel(netB, device_ids=gpu_list)
-        netC = nn.DataParallel(netC, device_ids=gpu_list)
+    # if torch.cuda.device_count() >= 1:
+    #     gpu_list = []
+    #     for i in range(len(args.gpu_id.split(','))):
+    #         gpu_list.append(i)
+    #     print("Let's use", len(gpu_list), "GPUs!")
+    #     # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+    #     netF = nn.DataParallel(netF, device_ids=gpu_list)
+    #     netB = nn.DataParallel(netB, device_ids=gpu_list)
+    #     netC = nn.DataParallel(netC, device_ids=gpu_list)
 
     param_group = []
     for k, v in netF.named_parameters():
@@ -362,7 +362,10 @@ def train_target(args):
         torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F.pt"))
         torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B.pt"))
         torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C.pt"))
+    
     print('Maximum Accuracy: ', max_acc)
+    args.out_file.write('Max Accuracy: {:.2f}'.format(max_acc) + '\n')
+    args.out_file.flush()
     return netF, netB, netC
 
 def dist_loss(input, target, T=0.1):
@@ -372,6 +375,7 @@ def dist_loss(input, target, T=0.1):
     log_prob_s = nn.LogSoftmax(dim=1)(input)
     dist_loss = -(prob_t*log_prob_s).sum(dim=1).mean()
     return dist_loss
+
 def print_args(args):
     s = "==========================================\n"
     for arg, content in args.__dict__.items():
@@ -493,8 +497,8 @@ if __name__ == "__main__":
     parser.add_argument('--interval', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=48, help="batch_size")
     parser.add_argument('--test_bs', type=int, default=128, help="batch_size")
-    parser.add_argument('--dset', type=str, default='office-home', choices='office-home')
-    parser.add_argument('--lr', type=float, default=1e-3, help="learning rate")
+    parser.add_argument('--dset', type=str, default='office-home', choices=['visda-2017', 'office', 'office-home', 'office-caltech', 'pacs', 'domain_net'])
+    parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
     parser.add_argument('--net', type=str, default='resnet50', help="alexnet, vgg16, resnet50, res101")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
 
@@ -547,7 +551,7 @@ if __name__ == "__main__":
         args.class_num = 12
     if args.dset == 'office-caltech':
         names = ['amazon', 'caltech', 'dslr', 'webcam']
-        args.class_num = 7
+        args.class_num = 10
     if args.dset == 'pacs':
         names = ['art_painting', 'cartoon', 'photo', 'sketch']
         args.class_num = 7
@@ -558,7 +562,7 @@ if __name__ == "__main__":
         names = ['art_painting','cartoon', 'photo', 'sketch']
         args.class_num = 7
         
-    # os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
     torch.manual_seed(SEED)
     torch.cuda.manual_seed(SEED)
@@ -584,12 +588,12 @@ if __name__ == "__main__":
             args.txt_eval_dn = args.t_dset_path
 
         mode = 'online' if args.wandb else 'disabled'
-        wandb.init(project='STDA_'+args.dset, entity='vclab', name=f'{names[args.s]} to {names[i]} '+args.suffix, reinit=True,mode=mode, config=args)
-        config=wandb.config
-        args.lr=config['lr']
-        args.const_par=config['const_par']
-        args.fbnm_par=config['fbnm_par']
-        args.cls_par=config['cls_par']
+        wandb.init(project=args.dset, entity='vclab', name=f'STDA:{names[args.s]} 2 {names[i]} '+args.suffix, reinit=True,mode=mode, config=args)
+        # config=wandb.config
+        # args.lr=config['lr']
+        # args.const_par=config['const_par']
+        # args.fbnm_par=config['fbnm_par']
+        # args.cls_par=config['cls_par']
 
         args.output_dir_src = osp.join(args.input_src, args.da, args.dset, names[args.s][0].upper())
         args.output_dir = osp.join(args.output, 'STDA', args.dset, names[args.s][0].upper() + names[i][0].upper())

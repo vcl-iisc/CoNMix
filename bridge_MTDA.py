@@ -109,11 +109,11 @@ def data_load(args):
         tr_txt = txt_src
 
     dsets["source_tr"] = ImageList_idx(tr_txt, transform=image_train())
-    dset_loaders["source_tr"] = DataLoader(dsets["source_tr"], batch_size=train_bs, shuffle=True, drop_last=False)
+    dset_loaders["source_tr"] = DataLoader(dsets["source_tr"], batch_size=train_bs, shuffle=True, num_workers=args.worker, drop_last=False)
     dsets["source_te"] = ImageList_idx(te_txt, transform=image_test())
-    dset_loaders["source_te"] = DataLoader(dsets["source_te"], batch_size=train_bs, shuffle=True, drop_last=False)
+    dset_loaders["source_te"] = DataLoader(dsets["source_te"], batch_size=train_bs, shuffle=True, num_workers=args.worker, drop_last=False)
     dsets["test"] = ImageList_idx(txt_test, transform=image_test())
-    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=train_bs*2, shuffle=True, drop_last=False)
+    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=train_bs*2, shuffle=True, num_workers=args.worker, drop_last=False)
 
     return dset_loaders
 
@@ -219,12 +219,23 @@ def test_target(args):
     netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).cuda()
     netC = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).cuda()
     
+    # if torch.cuda.device_count() >= 1:
+    #     gpu_list = []
+    #     for i in range(len(args.gpu_id.split(','))):
+    #         gpu_list.append(i)
+    #     print("Let's use", len(gpu_list), "GPUs!")
+    #     # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+    #     netF = nn.DataParallel(netF, device_ids=gpu_list)
+    #     netB = nn.DataParallel(netB, device_ids=gpu_list)
+    #     netC = nn.DataParallel(netC, device_ids=gpu_list)
+
     args.modelpath = args.output_dir_src + '/target_F.pt'   
     netF.load_state_dict(torch.load(args.modelpath))
     args.modelpath = args.output_dir_src + '/target_B.pt'   
     netB.load_state_dict(torch.load(args.modelpath))
     args.modelpath = args.output_dir_src + '/target_C.pt'   
     netC.load_state_dict(torch.load(args.modelpath))
+
 
     netF.eval()
     netB.eval()
@@ -257,7 +268,8 @@ if __name__ == "__main__":
     parser.add_argument('--t', type=int, default=1, help="target")
     parser.add_argument('--max_epoch', type=int, default=20, help="max iterations")
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
-    parser.add_argument('--dset', type=str, default='office', choices=['office-home'])
+    parser.add_argument('--worker', type=int, default=8, help="number of workers")
+    parser.add_argument('--dset', type=str, default='office', choices=['visda-2017', 'office', 'office-home', 'office-caltech', 'pacs', 'domain_net'])
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
     parser.add_argument('--net', type=str, default='vit', help="vgg16, resnet50, resnet101")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
@@ -279,6 +291,21 @@ if __name__ == "__main__":
     if args.dset == 'office-home':
         names = ['Art', 'Clipart', 'Product', 'RealWorld']
         args.class_num = 65 
+    if args.dset == 'office':
+        names = ['amazon', 'dslr', 'webcam']
+        args.class_num = 31
+    if args.dset == 'visda-2017':
+        names = ['train', 'validation']
+        args.class_num = 12
+    if args.dset == 'office-caltech':
+        names = ['amazon', 'caltech', 'dslr', 'webcam']
+        args.class_num = 10
+    if args.dset == 'pacs':
+        names = ['art_painting', 'cartoon', 'photo', 'sketch']
+        args.class_num = 7
+    if args.dset =='domain_net':
+        names = ['clipart', 'infograph', 'painting', 'quickdraw', 'sketch', 'real']
+        args.class_num = 345
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -340,6 +367,6 @@ if __name__ == "__main__":
             img_path.append(image_path)
             label.append(int(lbl))
         dict = {'Domain': args.t, 'Image Path': img_path, 'Actual Label': label, 'Pseudo Label': pl}
-        print(dict)
+        # print(dict)
         df = pd.DataFrame(dict)
         df.to_csv(osp.join(args.save_dir, names[args.s]+'.csv'), mode = 'a', header=False, index=False)

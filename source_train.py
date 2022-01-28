@@ -222,7 +222,7 @@ def train_source(args):
 	# print("Total number of learning parameters: {}".format(num_params_update))
 
 	netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).cuda()
-	netC = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).cuda()
+	netC = network.feat_classifier(type=args.layer, class_num=args.class_num, bottleneck_dim=args.bottleneck).cuda()
 
 	param_group = []
 	learning_rate = args.lr
@@ -294,19 +294,19 @@ def train_source(args):
 				best_netB = netB.state_dict()
 				best_netC = netC.state_dict()
 
-				torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
-				torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
-				torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
-				print('Model Saved!!')
+				# torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
+				# torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
+				# torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
+				# print('Model Saved!!')
 
 			netF.train()
 			netB.train()
 			netC.train()
 				
-	torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
-	torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
-	torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
-	print('Final Model Saved!!')
+	# torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
+	# torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
+	# torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
+	# print('Final Model Saved!!')
 
 	return netF, netB, netC
 
@@ -365,8 +365,8 @@ if __name__ == "__main__":
 	parser.add_argument('--gpu_id', type=str, nargs='?', default='0', help="device id to run")
 	parser.add_argument('--s', type=int, default=0, help="source")
 	parser.add_argument('--t', type=int, default=1, help="target")
-	parser.add_argument('--max_epoch', type=int, default=100, help="max iterations")
-	parser.add_argument('--interval', type=int, default=50, help="interval")
+	parser.add_argument('--max_epoch', type=int, default=50, help="max iterations")
+	parser.add_argument('--interval', type=int, default=25, help="interval")
 	parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
 	parser.add_argument('--dset', type=str, default='office-home', choices=['visda-2017', 'office', 'office-home', 'office-caltech', 'pacs', 'domain_net'])
 	parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
