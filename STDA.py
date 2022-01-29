@@ -338,7 +338,7 @@ def train_target(args):
             acc_eval_dn, _ = cal_acc(dset_loaders["eval_dn"], netF, netB, netC, False)
             if acc_eval_dn > max_acc:
                 max_acc=acc_eval_dn
-            wandb.log({"STDA_Test_Accuracy":acc_eval_dn})
+            wandb.log({"STDA_Test_Accuracy":acc_eval_dn, "Max_Acc": max_acc})
             log_str = '\nTask: {}, Iter:{}/{}; Final Eval test = {:.2f}%'.format(args.name, iter_num, max_iter, acc_eval_dn)
             
             torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F.pt"))
@@ -489,13 +489,13 @@ if __name__ == "__main__":
     parser.add_argument('--gpu_id', type=str, nargs='?', default='0', help="device id to run")
     parser.add_argument('--s', type=int, default=0, help="source")
     parser.add_argument('--t', type=int, default=1, nargs='+', help="target")
-    parser.add_argument('--max_epoch', type=int, default=20, help="max iterations")
-    parser.add_argument('--interval', type=int, default=20)
-    parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
-    parser.add_argument('--test_bs', type=int, default=256, help="batch_size")
+    parser.add_argument('--max_epoch', type=int, default=100, help="max iterations")
+    parser.add_argument('--interval', type=int, default=100)
+    parser.add_argument('--batch_size', type=int, default=48, help="batch_size")
+    parser.add_argument('--test_bs', type=int, default=128, help="batch_size")
     parser.add_argument('--dset', type=str, default='office-home', choices='office-home')
     parser.add_argument('--lr', type=float, default=1e-3, help="learning rate")
-    parser.add_argument('--net', type=str, default='vit', help="alexnet, vgg16, resnet50, res101")
+    parser.add_argument('--net', type=str, default='resnet50', help="alexnet, vgg16, resnet50, res101")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
 
     parser.add_argument('--gent', type=bool, default=False)
@@ -530,7 +530,7 @@ if __name__ == "__main__":
     parser.add_argument('--plr', type=int, default=1)
     parser.add_argument('--soft_pl', type=int, default=1)
     parser.add_argument('--suffix', type=str, default='')
-    parser.add_argument('--nworker', type=int, default=8)
+    parser.add_argument('--worker', type=int, default=8)
     parser.add_argument('--wandb', type=int, default=1)
 
 
@@ -558,7 +558,7 @@ if __name__ == "__main__":
         names = ['art_painting','cartoon', 'photo', 'sketch']
         args.class_num = 7
         
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+    # os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
     torch.manual_seed(SEED)
     torch.cuda.manual_seed(SEED)
@@ -584,7 +584,12 @@ if __name__ == "__main__":
             args.txt_eval_dn = args.t_dset_path
 
         mode = 'online' if args.wandb else 'disabled'
-        wandb.init(project='STDA_'+args.dset, entity='vclab', name=f'{names[args.s]} to {names[i]} '+args.suffix, reinit=True,mode=mode)
+        wandb.init(project='STDA_'+args.dset, entity='vclab', name=f'{names[args.s]} to {names[i]} '+args.suffix, reinit=True,mode=mode, config=args)
+        config=wandb.config
+        args.lr=config['lr']
+        args.const_par=config['const_par']
+        args.fbnm_par=config['fbnm_par']
+        args.cls_par=config['cls_par']
 
         args.output_dir_src = osp.join(args.input_src, args.da, args.dset, names[args.s][0].upper())
         args.output_dir = osp.join(args.output, 'STDA', args.dset, names[args.s][0].upper() + names[i][0].upper())

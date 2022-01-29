@@ -127,14 +127,14 @@ def cal_acc(loader, netF, netB, netC, flag=False):
     accuracy = torch.sum(torch.squeeze(predict).float() == all_label).item() / float(all_label.size()[0])
     mean_ent = torch.mean(loss.Entropy(nn.Softmax(dim=1)(all_output))).cpu().data.item()
 
-    # if args.dset == 'visda-2017':
-    #     matrix = confusion_matrix(all_label, torch.squeeze(predict).float())
-    #     acc = matrix.diagonal() / matrix.sum(axis=1) * 100
-    #     aacc = acc.mean()
-    #     aa = [str(np.round(i, 2)) for i in acc]
-    #     acc = ' '.join(aa)
-    #     print(f'Classwise Acc: {acc}')
-    #     print(f'Mean Acc: {aacc}')
+    if args.dset == 'visda-2017':
+        matrix = confusion_matrix(all_label, torch.squeeze(predict).float())
+        acc = matrix.diagonal() / matrix.sum(axis=1) * 100
+        aacc = acc.mean()
+        aa = [str(np.round(i, 2)) for i in acc]
+        acc = ' '.join(aa)
+        print(f'Classwise Acc: {acc}')
+        print(f'Mean Acc: {aacc}')
         
         # return aacc, acc
     # else:
@@ -577,60 +577,39 @@ if __name__ == "__main__":
 
     if type(args.t)==int:
         args.t = [args.t]
-    if args.phase=='train': 
-        for i in args.t:
+        
+    for i in args.t:
 
-            if i == args.s:
-                continue
+        if i == args.s:
+            continue
 
-            folder = './data/'
-            args.s_dset_path = folder + args.dset + '/' + names[args.s] + '.txt'
-            args.test_dset_path = folder + args.dset + '/' + names[i] + '.txt'
-            args.t_dset_path = folder + args.dset + '/' + names[i] + '.txt'
-            if args.dset =='domain_net':
-                args.txt_eval_dn = folder + args.dset + '/' + names[i] + '_test.txt'
-            else:
-                args.txt_eval_dn = args.t_dset_path
-
-            mode = 'online' if args.wandb else 'disabled'
-            wandb.init(project=args.dset, entity='vclab', name=f'STDA:{names[args.s]} 2 {names[i]} '+args.suffix, reinit=True,mode=mode, config=args)
-            # config=wandb.config
-            # args.lr=config['lr']
-            # args.const_par=config['const_par']
-            # args.fbnm_par=config['fbnm_par']
-            # args.cls_par=config['cls_par']
-
-            args.output_dir_src = osp.join(args.input_src, args.da, args.dset, names[args.s][0].upper())
-            args.output_dir = osp.join(args.output, 'STDA', args.dset, names[args.s][0].upper() + names[i][0].upper())
-            args.name = names[args.s][0].upper() + names[i][0].upper()
-
-            if not osp.exists(args.output_dir):
-                os.system('mkdir -p ' + args.output_dir)
-            if not osp.exists(args.output_dir):
-                os.mkdir(args.output_dir)
-            
-            args.out_file = open(osp.join(args.output_dir, 'log.txt'), 'w')
-            args.out_file.write(print_args(args) + '\n')
-            args.out_file.flush()
-            train_target(args)
-    else:
-        args.t = args.t[0]
         folder = './data/'
         args.s_dset_path = folder + args.dset + '/' + names[args.s] + '.txt'
-        args.test_dset_path = folder + args.dset + '/' + names[args.t] + '.txt'
-        args.t_dset_path = folder + args.dset + '/' + names[args.t] + '.txt'
+        args.test_dset_path = folder + args.dset + '/' + names[i] + '.txt'
+        args.t_dset_path = folder + args.dset + '/' + names[i] + '.txt'
         if args.dset =='domain_net':
-            args.txt_eval_dn = folder + args.dset + '/' + names[args.t] + '_test.txt'
+            args.txt_eval_dn = folder + args.dset + '/' + names[i] + '_test.txt'
         else:
             args.txt_eval_dn = args.t_dset_path
-        
+
+        mode = 'online' if args.wandb else 'disabled'
+        wandb.init(project=args.dset, entity='vclab', name=f'STDA:{names[args.s]} 2 {names[i]} '+args.suffix, reinit=True,mode=mode, config=args)
+        # config=wandb.config
+        # args.lr=config['lr']
+        # args.const_par=config['const_par']
+        # args.fbnm_par=config['fbnm_par']
+        # args.cls_par=config['cls_par']
+
         args.output_dir_src = osp.join(args.input_src, args.da, args.dset, names[args.s][0].upper())
-        args.output_dir = osp.join(args.output, 'STDA', args.dset, names[args.s][0].upper() + names[args.t][0].upper())
-        args.name = names[args.s][0].upper() + names[args.t][0].upper()
+        args.output_dir = osp.join(args.output, 'STDA', args.dset, names[args.s][0].upper() + names[i][0].upper())
+        args.name = names[args.s][0].upper() + names[i][0].upper()
 
         if not osp.exists(args.output_dir):
             os.system('mkdir -p ' + args.output_dir)
         if not osp.exists(args.output_dir):
             os.mkdir(args.output_dir)
-    
-        classwise_acc(args)
+        
+        args.out_file = open(osp.join(args.output_dir, 'log.txt'), 'w')
+        args.out_file.write(print_args(args) + '\n')
+        args.out_file.flush()
+        train_target(args)
