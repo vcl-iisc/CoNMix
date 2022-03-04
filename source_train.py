@@ -30,6 +30,7 @@ def lr_scheduler(optimizer, iter_num, max_iter, gamma=10, power=0.75):
 		param_group['weight_decay'] = 1e-3
 		param_group['momentum'] = 0.9
 		param_group['nesterov'] = True
+		wandb.log({'MISC/LR': param_group['lr']})
 	return optimizer
 
 def image_train(resize_size=256, crop_size=224, alexnet=False):
@@ -209,7 +210,7 @@ def train_source(args):
 		if args.net == 'deit_s':
 			netF = torch.hub.load('facebookresearch/deit:main', 'deit_small_patch16_224', pretrained=True).cuda()
 		elif args.net == 'deit_b':
-			netF = torch.hub.load('facebookresearch/deit:main', 'deit_base_patch16_224', pretrained=True).cuda()
+			netF = torch.hub.load('facebookresearch/deit:main', 'deit_base_distilled_patch16_224', pretrained=True).cuda()
 		netF.in_features = 1000
 
 	
@@ -223,6 +224,16 @@ def train_source(args):
 
 	netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).cuda()
 	netC = network.feat_classifier(type=args.layer, class_num=args.class_num, bottleneck_dim=args.bottleneck).cuda()
+
+	if torch.cuda.device_count() >= 1:
+		gpu_list = []
+		for i in range(len(args.gpu_id.split(','))):
+			gpu_list.append(i)
+		print("Let's use", len(gpu_list), "GPUs!")
+		# dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+		netF = nn.DataParallel(netF, device_ids=gpu_list)
+		netB = nn.DataParallel(netB, device_ids=gpu_list)
+		netC = nn.DataParallel(netC, device_ids=gpu_list)
 
 	param_group = []
 	learning_rate = args.lr
@@ -255,7 +266,6 @@ def train_source(args):
 			continue
 
 		iter_num += 1
-		lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
 
 		inputs_source, labels_source = inputs_source.cuda(), labels_source.cuda()
 		outputs_source = netC(netB(netF(inputs_source)))
@@ -263,16 +273,15 @@ def train_source(args):
 		
 		
 		classifier_loss = CrossEntropyLabelSmooth(num_classes=args.class_num, epsilon=args.smooth)(outputs_source, labels_source)
-
+		wandb.log({'SRC Train: train_classifier_loss': classifier_loss.item()})
 
 		optimizer.zero_grad()
 		classifier_loss.backward()
-		wandb.log({'SRC Train: train_classifier_loss': classifier_loss.item()})
-		# print(f'Task: {args.name_src}, Iter:{iter_num}/{max_iter} \t train_classifier_loss {classifier_loss.item()}')
-
 		optimizer.step()
 
 		if iter_num % interval_iter == 0 or iter_num == max_iter:
+			lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
+
 			netF.eval()
 			netB.eval()
 			netC.eval()
@@ -294,10 +303,10 @@ def train_source(args):
 				best_netB = netB.state_dict()
 				best_netC = netC.state_dict()
 
-				# torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
-				# torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
-				# torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
-				# print('Model Saved!!')
+				torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
+				torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
+				torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
+				print('Model Saved!!')
 
 			netF.train()
 			netB.train()
@@ -314,21 +323,31 @@ def test_target(args):
 	dset_loaders = data_load(args)
 	## set base network
 	if args.net[0:3] == 'res':
-		netF = network.ResBase(res_name=args.net).cuda()
+		netF = network.ResBase(res_name=args.net,se=args.se,nl=args.nl).cuda()
 	elif args.net[0:3] == 'vgg':
-		netF = network.VGGBase(vgg_name=args.net).cuda()  
-	elif args.net == 'deit_s':
-		netF = torch.hub.load('facebookresearch/deit:main', 'deit_small_patch16_224', pretrained=True).cuda()
-		netF.in_features = 1000
-	elif args.net == 'deit_s_distilled':
-		netF = torch.hub.load('facebookresearch/deit:main', 'deit_small_distilled_patch16_224', pretrained=True).cuda()
-		netF.in_features = 1000
-	else:
+		netF = network.VGGBase(vgg_name=args.net).cuda()
+	elif args.net == 'vit':
 		netF = network.ViT().cuda()
+	elif args.net[0:4] == 'deit':
+		if args.net == 'deit_s':
+			netF = torch.hub.load('facebookresearch/deit:main', 'deit_small_patch16_224', pretrained=True).cuda()
+		elif args.net == 'deit_b':
+			netF = torch.hub.load('facebookresearch/deit:main', 'deit_base_patch16_224', pretrained=True).cuda()
+		netF.in_features = 1000
 		
 	netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).cuda()
 	netC = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).cuda()
 	
+	if torch.cuda.device_count() >= 1:
+		gpu_list = []
+		for i in range(len(args.gpu_id.split(','))):
+			gpu_list.append(i)
+		print("Let's use", len(gpu_list), "GPUs!")
+		# dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+		netF = nn.DataParallel(netF, device_ids=gpu_list)
+		netB = nn.DataParallel(netB, device_ids=gpu_list)
+		netC = nn.DataParallel(netC, device_ids=gpu_list)
+
 	args.modelpath = args.output_dir_src + '/source_F.pt'   
 	netF.load_state_dict(torch.load(args.modelpath))
 	args.modelpath = args.output_dir_src + '/source_B.pt'   
@@ -365,8 +384,8 @@ if __name__ == "__main__":
 	parser.add_argument('--gpu_id', type=str, nargs='?', default='0', help="device id to run")
 	parser.add_argument('--s', type=int, default=0, help="source")
 	parser.add_argument('--t', type=int, default=1, help="target")
-	parser.add_argument('--max_epoch', type=int, default=50, help="max iterations")
-	parser.add_argument('--interval', type=int, default=25, help="interval")
+	parser.add_argument('--max_epoch', type=int, default=200, help="max iterations")
+	parser.add_argument('--interval', type=int, default=50, help="interval")
 	parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
 	parser.add_argument('--dset', type=str, default='office-home', choices=['visda-2017', 'office', 'office-home', 'office-caltech', 'pacs', 'domain_net'])
 	parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
@@ -383,7 +402,7 @@ if __name__ == "__main__":
 	parser.add_argument('--bsp', type=bool, default=False)
 	parser.add_argument('--se', type=bool, default=False)
 	parser.add_argument('--nl', type=bool, default=False)
-	parser.add_argument('--worker', type=int, default=8)
+	parser.add_argument('--worker', type=int, default=16)
 	parser.add_argument('--wandb', type=int, default=0)
 
 	args = parser.parse_args()
@@ -424,7 +443,7 @@ if __name__ == "__main__":
 	args.test_dset_path = folder + args.dset + '/' + names[args.t] + '.txt'    
 	
 	mode = 'online' if args.wandb else 'disabled'
-	wandb.init(project='Source Training', entity='vclab', name=f'{args.dset} {args.net} = SRC Train: {names[args.s]}', mode=mode)
+	wandb.init(project='CoNMix ECCV', entity='vclab', name=f'SRC {names[args.s]}', mode=mode, config=args, tags=['SRC', args.dset, args.net])
 
 	print(print_args(args))
 	if args.dset == 'office-home':

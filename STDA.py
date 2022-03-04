@@ -35,6 +35,7 @@ def lr_scheduler(optimizer, iter_num, max_iter, gamma=10, power=0.75):
         param_group['weight_decay'] = 1e-3
         param_group['momentum'] = 0.9
         param_group['nesterov'] = True
+        # wandb.log({'MISC/LR': param_group['lr']})
     return optimizer
 
 def image_train(resize_size=256, crop_size=224, alexnet=False):
@@ -164,20 +165,11 @@ def train_target(args):
         if args.net == 'deit_s':
             netF = torch.hub.load('facebookresearch/deit:main', 'deit_small_patch16_224', pretrained=True).cuda()
         elif args.net == 'deit_b':
-            netF = torch.hub.load('facebookresearch/deit:main', 'deit_base_patch16_224', pretrained=True).cuda()
+            netF = torch.hub.load('facebookresearch/deit:main', 'deit_base_distilled_patch16_384', pretrained=True).cuda()
         netF.in_features = 1000
         
     netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).cuda()
     netC = network.feat_classifier(type=args.layer, class_num=args.class_num, bottleneck_dim=args.bottleneck).cuda()
-
-
-    modelpath = args.output_dir_src + '/source_F.pt'
-    netF.load_state_dict(torch.load(modelpath))
-    modelpath = args.output_dir_src + '/source_B.pt'
-    netB.load_state_dict(torch.load(modelpath))
-    modelpath = args.output_dir_src + '/source_C.pt'
-    netC.load_state_dict(torch.load(modelpath))
-    print('Model Loaded')
 
     if torch.cuda.device_count() >= 1:
         gpu_list = []
@@ -188,6 +180,16 @@ def train_target(args):
         netF = nn.DataParallel(netF, device_ids=gpu_list)
         netB = nn.DataParallel(netB, device_ids=gpu_list)
         netC = nn.DataParallel(netC, device_ids=gpu_list)
+
+    modelpath = args.output_dir_src + '/source_F.pt'
+    netF.load_state_dict(torch.load(modelpath))
+    modelpath = args.output_dir_src + '/source_B.pt'
+    netB.load_state_dict(torch.load(modelpath))
+    modelpath = args.output_dir_src + '/source_C.pt'
+    netC.load_state_dict(torch.load(modelpath))
+    print('Model Loaded')
+
+    
 
     param_group = []
     for k, v in netF.named_parameters():
@@ -261,7 +263,6 @@ def train_target(args):
             netC.train()
 
         iter_num += 1
-        lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
 
         features = netB(netF(inputs_test))
         outputs = netC(features)
@@ -331,6 +332,8 @@ def train_target(args):
         optimizer.step()
 
         if iter_num % interval_iter == 0 or iter_num == max_iter:
+            lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
+
             netF.eval()
             netB.eval()
             netC.eval()
@@ -494,7 +497,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=48, help="batch_size")
     parser.add_argument('--test_bs', type=int, default=128, help="batch_size")
     parser.add_argument('--dset', type=str, default='office-home', choices='office-home')
-    parser.add_argument('--lr', type=float, default=1e-3, help="learning rate")
+    parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
     parser.add_argument('--net', type=str, default='resnet50', help="alexnet, vgg16, resnet50, res101")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
 
@@ -512,7 +515,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--const_par', type=float, default=0.2)
     parser.add_argument('--ent_par', type=float, default=1.3)
-    parser.add_argument('--fbnm_par', type=float, default=1.0)
+    parser.add_argument('--fbnm_par', type=float, default=4.0)
 
     parser.add_argument('--lr_decay1', type=float, default=0.1)
     parser.add_argument('--lr_decay2', type=float, default=1.0)
@@ -584,7 +587,7 @@ if __name__ == "__main__":
             args.txt_eval_dn = args.t_dset_path
 
         mode = 'online' if args.wandb else 'disabled'
-        wandb.init(project='STDA_'+args.dset, entity='vclab', name=f'{names[args.s]} to {names[i]} '+args.suffix, reinit=True,mode=mode, config=args)
+        wandb.init(project='CoNMix ECCV', entity='vclab', name=f'STDA {names[args.s]} to {names[i]} '+args.suffix, reinit=True,mode=mode, config=args, tags=[args.dset, args.net, 'STDA'])
         config=wandb.config
         args.lr=config['lr']
         args.const_par=config['const_par']
