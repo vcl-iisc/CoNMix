@@ -210,7 +210,7 @@ def train_source(args):
 		if args.net == 'deit_s':
 			netF = torch.hub.load('facebookresearch/deit:main', 'deit_small_patch16_224', pretrained=True).cuda()
 		elif args.net == 'deit_b':
-			netF = torch.hub.load('facebookresearch/deit:main', 'deit_base_distilled_patch16_224', pretrained=True).cuda()
+			netF = torch.hub.load('facebookresearch/deit:main', 'deit_base_patch16_224', pretrained=True).cuda()
 		netF.in_features = 1000
 
 	

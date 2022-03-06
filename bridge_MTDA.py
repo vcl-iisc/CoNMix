@@ -219,15 +219,15 @@ def test_target(args):
     netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).cuda()
     netC = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).cuda()
     
-    # if torch.cuda.device_count() >= 1:
-    #     gpu_list = []
-    #     for i in range(len(args.gpu_id.split(','))):
-    #         gpu_list.append(i)
-    #     print("Let's use", len(gpu_list), "GPUs!")
-    #     # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-    #     netF = nn.DataParallel(netF, device_ids=gpu_list)
-    #     netB = nn.DataParallel(netB, device_ids=gpu_list)
-    #     netC = nn.DataParallel(netC, device_ids=gpu_list)
+    if torch.cuda.device_count() >= 1:
+        gpu_list = []
+        for i in range(len(args.gpu_id.split(','))):
+            gpu_list.append(i)
+        print("Let's use", len(gpu_list), "GPUs!")
+        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+        netF = nn.DataParallel(netF, device_ids=gpu_list)
+        netB = nn.DataParallel(netB, device_ids=gpu_list)
+        netC = nn.DataParallel(netC, device_ids=gpu_list)
 
     args.modelpath = args.output_dir_src + '/target_F.pt'   
     netF.load_state_dict(torch.load(args.modelpath))
@@ -307,7 +307,7 @@ if __name__ == "__main__":
         names = ['clipart', 'infograph', 'painting', 'quickdraw', 'sketch', 'real']
         args.class_num = 345
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+    # os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
     torch.manual_seed(SEED)
     torch.cuda.manual_seed(SEED)

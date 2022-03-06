@@ -26,6 +26,21 @@ import ml_collections
 import wandb
 import random 
 
+def lr_scheduler(optimizer, iter_num, max_iter, gamma=10, power=0.75):
+    decay = (1 + gamma * iter_num / max_iter) ** (-power)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = param_group['lr0'] * decay
+        param_group['weight_decay'] = 1e-3
+        param_group['momentum'] = 0.9
+        param_group['nesterov'] = True
+        # wandb.log({'MISC/LR': param_group['lr']})
+    return optimizer
+
+def op_copy(optimizer):
+    for param_group in optimizer.param_groups:
+        param_group['lr0'] = param_group['lr']
+    return optimizer
+
 def init_src_model_load(args):
     ## set base network
     if args.net[0:3] == 'res':
@@ -116,7 +131,7 @@ def mixup_criterion(criterion, pred, y_a, y_b, lam):
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 
-def train(args, epoch,all_loader):
+def train(args, epoch, all_loader, optimizer):
     print('\nEpoch: %d' % epoch)
     netF.train()
     netB.train()
@@ -210,7 +225,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
     parser.add_argument('--gpu_id', type=str, nargs='?', default='0', help="device id to run")
-    parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
+    parser.add_argument('--lr', default=1e-3, type=float, help='learning rate')
     parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
     parser.add_argument('--net', default="deit_s", type=str, help='model type (default: ResNet18)')
     parser.add_argument('--worker', type=int, default=8, help="number of workers")
@@ -310,9 +325,8 @@ if __name__ == '__main__':
     for k, v in netC.named_parameters():
         param_group += [{'params': v, 'lr': args.lr}]   
 
-    optimizer = optim.SGD(param_group, lr=args.lr, momentum=0.9,
-                        weight_decay=args.decay)
-
+    optimizer = optim.SGD(param_group, lr=args.lr, momentum=0.9, weight_decay=args.decay)
+    optimizer = op_copy(optimizer)
 
     logname = ('results/log' + '.csv')
     if not os.path.exists(logname):
@@ -322,7 +336,7 @@ if __name__ == '__main__':
                                 'test loss', 'test acc'])
 
     mode = 'online' if args.wandb else 'disabled'
-    wandb.init(project=args.dset, entity='vclab', name=f'MTDA:{names[args.s]} to other {args.suffix}', mode=mode)#!@
+    wandb.init(project='CoNMix ECCV', entity='vclab', name=f'MTDA {names[args.s]} to Others '+ args.suffix, reinit=True, mode=mode, config=args, tags=[args.dset, args.net, 'MTDA'])
 
     print(f'\nStarting training {names[args.s]} to others.')
     train_len = len(all_dset['train'])
@@ -331,9 +345,9 @@ if __name__ == '__main__':
 
     for epoch in range(start_epoch, args.epoch):
 
-        train_loss, reg_loss, train_acc = train(args, epoch, all_loader['train'])
+        train_loss, reg_loss, train_acc = train(args, epoch, all_loader['train'], optimizer)
         checkpoint(args, netF, netB, netC)
-
+        optimizer = lr_scheduler(optimizer, iter_num=epoch, max_iter=args.epoch)
         if epoch % args.interval == 0:
             print('\n Start Testing')
             test_loss, test_acc = test(epoch,all_loader['test'])

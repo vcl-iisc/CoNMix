@@ -332,23 +332,23 @@ def train_target(args):
         optimizer.step()
 
         if iter_num % interval_iter == 0 or iter_num == max_iter:
-            lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
+            if args.sdlr:
+                lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
 
             netF.eval()
             netB.eval()
             netC.eval()
 
             acc_eval_dn, _ = cal_acc(dset_loaders["eval_dn"], netF, netB, netC, False)
-            if acc_eval_dn > max_acc:
+            if acc_eval_dn >= max_acc:
                 max_acc=acc_eval_dn
+                torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F.pt"))
+                torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B.pt"))
+                torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C.pt"))
+                print('Model Saved!!!')
             wandb.log({"STDA_Test_Accuracy":acc_eval_dn, "Max_Acc": max_acc})
             log_str = '\nTask: {}, Iter:{}/{}; Final Eval test = {:.2f}%'.format(args.name, iter_num, max_iter, acc_eval_dn)
             
-            torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F.pt"))
-            torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B.pt"))
-            torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C.pt"))
-            print('model saved')
-
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
             print(log_str + '\n')
@@ -361,10 +361,10 @@ def train_target(args):
             netB.train()
             netC.train()
 
-    if args.issave:
-        torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F.pt"))
-        torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B.pt"))
-        torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C.pt"))
+    # if args.issave:
+    #     torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F.pt"))
+    #     torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B.pt"))
+    #     torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C.pt"))
     print('Maximum Accuracy: ', max_acc)
     return netF, netB, netC
 
@@ -496,8 +496,8 @@ if __name__ == "__main__":
     parser.add_argument('--interval', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=48, help="batch_size")
     parser.add_argument('--test_bs', type=int, default=128, help="batch_size")
-    parser.add_argument('--dset', type=str, default='office-home', choices='office-home')
-    parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
+    parser.add_argument('--dset', type=str, default='office-home')
+    parser.add_argument('--lr', type=float, default=3e-3, help="learning rate")
     parser.add_argument('--net', type=str, default='resnet50', help="alexnet, vgg16, resnet50, res101")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
 
@@ -528,13 +528,15 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str, default='STDA_weights', help='Save ur weights here')
     parser.add_argument('--input_src', type=str, default='src_train', help='Load SRC training wt path')
     parser.add_argument('--da', type=str, default='uda', choices=['uda', 'pda'])
-    parser.add_argument('--issave', type=bool, default=True)
+    parser.add_argument('--issave', type=bool, default=False)
     parser.add_argument('--earlystop', type=int, default=0)
     parser.add_argument('--plr', type=int, default=1)
     parser.add_argument('--soft_pl', type=int, default=1)
     parser.add_argument('--suffix', type=str, default='')
     parser.add_argument('--worker', type=int, default=8)
     parser.add_argument('--wandb', type=int, default=1)
+    parser.add_argument('--sdlr', type=int, default=1)
+
 
 
     args = parser.parse_args()
@@ -550,7 +552,7 @@ if __name__ == "__main__":
         args.class_num = 12
     if args.dset == 'office-caltech':
         names = ['amazon', 'caltech', 'dslr', 'webcam']
-        args.class_num = 7
+        args.class_num = 10
     if args.dset == 'pacs':
         names = ['art_painting', 'cartoon', 'photo', 'sketch']
         args.class_num = 7
@@ -561,7 +563,7 @@ if __name__ == "__main__":
         names = ['art_painting','cartoon', 'photo', 'sketch']
         args.class_num = 7
         
-    # os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
     torch.manual_seed(SEED)
     torch.cuda.manual_seed(SEED)
