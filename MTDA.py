@@ -343,7 +343,7 @@ if __name__ == '__main__':
     test_len = len(all_dset['test'])
     print(f'Training: {train_len} Images \t Testing: {test_len} Images')
 
-    for epoch in range(start_epoch, args.epoch):
+    for epoch in range(start_epoch, args.epoch+1):
 
         train_loss, reg_loss, train_acc = train(args, epoch, all_loader['train'], optimizer)
         checkpoint(args, netF, netB, netC)
