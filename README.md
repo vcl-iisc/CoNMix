@@ -1,5 +1,7 @@
-# CoNMix
+# CoNMix for Source-free Single and Multi-target Domain Adaptation
 Official pytorch implementation for **CoNMix** ([website](https://sites.google.com/view/conmix-vcl))
+
+Accepted at IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)-2023, Waikoloa, Hawaii
 
 [Vikash Kumar](https://www.linkedin.com/in/vikash0837/), [Rohit Lal](https://rohitlal.net/), [Himanshu Patil](https://www.linkedin.com/in/hipatil/), [Anirban Chakraborty](https://visual-computing.in/)
 
