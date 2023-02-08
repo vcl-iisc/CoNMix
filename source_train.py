@@ -133,7 +133,7 @@ def cal_acc(loader, netF, netB, netC, flag=False):
 	with torch.no_grad():
 		iter_test = iter(loader)
 		for i in tqdm(range(len(loader))):
-			data = iter_test.next()
+			data = next(iter_test)
 			inputs = data[0]
 			labels = data[1]
 			inputs = inputs.cuda()
@@ -166,7 +166,7 @@ def cal_acc_oda(loader, netF, netB, netC):
 	with torch.no_grad():
 		iter_test = iter(loader)
 		for i in range(len(loader)):
-			data = iter_test.next()
+			data = next(iter_test)
 			inputs = data[0]
 			labels = data[1]
 			inputs = inputs.cuda()
@@ -257,15 +257,14 @@ def train_source(args):
 
 	while iter_num < max_iter:
 		try:
-			inputs_source, labels_source = iter_source.next()
+			inputs_source, labels_source = next(iter_source)
 		except:
 			iter_source = iter(dset_loaders["source_tr"])
-			inputs_source, labels_source = iter_source.next()
+			inputs_source, labels_source = next(iter_source)
 
 		if inputs_source.size(0) == 1:
 			continue
 
-		iter_num += 1
 
 		inputs_source, labels_source = inputs_source.cuda(), labels_source.cuda()
 		outputs_source = netC(netB(netF(inputs_source)))
@@ -311,7 +310,7 @@ def train_source(args):
 			netF.train()
 			netB.train()
 			netC.train()
-				
+		iter_num += 1
 	# torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
 	# torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
 	# torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
@@ -443,7 +442,7 @@ if __name__ == "__main__":
 	args.test_dset_path = folder + args.dset + '/' + names[args.t] + '.txt'    
 	
 	mode = 'online' if args.wandb else 'disabled'
-	wandb.init(project='CoNMix ECCV', entity='vclab', name=f'SRC {names[args.s]}', mode=mode, config=args, tags=['SRC', args.dset, args.net])
+	wandb.init(project='CoNMix ECCV', name=f'SRC {names[args.s]}', mode=mode, config=args, tags=['SRC', args.dset, args.net])
 
 	print(print_args(args))
 	if args.dset == 'office-home':

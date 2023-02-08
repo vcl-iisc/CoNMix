@@ -110,7 +110,7 @@ def cal_acc(loader, netF, netB, netC, flag=False):
     with torch.no_grad():
         iter_test = iter(loader)
         for i in range(len(loader)):
-            data = iter_test.next()
+            data = next(iter_test)
             inputs = data[0]
             labels = data[1]
             inputs = inputs.cuda()
@@ -219,10 +219,10 @@ def train_target(args):
     max_acc = 0
     while iter_num < max_iter:
         try:
-            inputs_test, _, tar_idx = iter_test.next()
+            inputs_test, _, tar_idx = next(iter_test)
         except:
             iter_test = iter(dset_loaders["target"])
-            inputs_test, _, tar_idx = iter_test.next()
+            inputs_test, _, tar_idx = next(iter_test)
             inputs_test_stg = get_strong_aug(dsets["strong_aug"], tar_idx)
 
         if inputs_test.size(0) == 1:  #Why this?
@@ -389,7 +389,7 @@ def obtain_label(loader, netF, netB, netC, args):
     with torch.no_grad():
         iter_test = iter(loader)
         for _ in tqdm(range(len(loader))):
-            data = iter_test.next()
+            data = next(iter_test)
             inputs = data[0]
             labels = data[1]
             inputs = inputs.cuda()
@@ -497,7 +497,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=48, help="batch_size")
     parser.add_argument('--test_bs', type=int, default=128, help="batch_size")
     parser.add_argument('--dset', type=str, default='office-home')
-    parser.add_argument('--lr', type=float, default=3e-3, help="learning rate")
+    parser.add_argument('--lr', type=float, default=1e-3, help="learning rate")
     parser.add_argument('--net', type=str, default='resnet50', help="alexnet, vgg16, resnet50, res101")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
 
@@ -589,12 +589,7 @@ if __name__ == "__main__":
             args.txt_eval_dn = args.t_dset_path
 
         mode = 'online' if args.wandb else 'disabled'
-        wandb.init(project='CoNMix ECCV', entity='vclab', name=f'STDA {names[args.s]} to {names[i]} '+args.suffix, reinit=True,mode=mode, config=args, tags=[args.dset, args.net, 'STDA'])
-        config=wandb.config
-        args.lr=config['lr']
-        args.const_par=config['const_par']
-        args.fbnm_par=config['fbnm_par']
-        args.cls_par=config['cls_par']
+        wandb.init(project='CoNMix ECCV', name=f'STDA {names[args.s]} to {names[i]} '+args.suffix, reinit=True,mode=mode, config=args, tags=[args.dset, args.net, 'STDA'])
 
         args.output_dir_src = osp.join(args.input_src, args.da, args.dset, names[args.s][0].upper())
         args.output_dir = osp.join(args.output, 'STDA', args.dset, names[args.s][0].upper() + names[i][0].upper())
